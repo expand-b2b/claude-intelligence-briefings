@@ -1,0 +1,48 @@
+name: Telegram Briefing Notification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**Intelligence Briefing**.md'
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Ermittle aktuelles Briefing
+        id: find
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            FILE=$(ls -1 *"Intelligence Briefing"*.md 2>/dev/null | sort | tail -1)
+          else
+            FILE=$(git diff --name-only HEAD~1 HEAD | grep "Intelligence Briefing" | head -1)
+          fi
+          if [ -z "$FILE" ] || [ ! -f "$FILE" ]; then
+            echo "Keine Briefing-Datei gefunden"
+            echo "file=" >> "$GITHUB_OUTPUT"
+          else
+            echo "Gefunden: $FILE"
+            echo "file=$FILE" >> "$GITHUB_OUTPUT"
+            BASENAME=$(basename "$FILE" .md)
+            echo "basename=$BASENAME" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Sende an Telegram
+        if: steps.find.outputs.file != ''
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FILE: ${{ steps.find.outputs.file }}
+          CAPTION: ${{ steps.find.outputs.basename }}
+        run: |
+          curl -sSf -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
+            -F "chat_id=${CHAT_ID}" \
+            -F "document=@${FILE}" \
+            -F "caption=${CAPTION}"
